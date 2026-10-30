@@ -1,0 +1,2 @@
+/* Offline system-font fallback: no external font requests. */
+html, body, button, input, select, textarea, .ui.header, .ui.button { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }

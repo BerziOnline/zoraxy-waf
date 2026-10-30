@@ -1,0 +1,14 @@
+# Build outputs
+/zoraxy-waf-plugin
+/dist/
+*.exe
+*.test
+*.out
+
+# Runtime state (may contain API keys, security events)
+/data/
+*.jsonl
+config.json
+config.json.tmp*
+tests/__pycache__/
+/build-dev/
