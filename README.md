@@ -56,6 +56,10 @@ Coraza and the OWASP Core Rule Set are Go dependencies pinned in `go.mod` (the v
 - Rate limiting, IP and country blocking live in Zoraxy itself and are linked from the overview rather than duplicated.
 - CrowdSec AppSec is available as an alternative engine but not installed by this plugin; it needs a separately managed AppSec service.
 
+## License
+
+AGPL-3.0, the same license as Zoraxy. Coraza and the OWASP Core Rule Set are Apache-2.0 (see `THIRD_PARTY_NOTICES.txt`).
+
 ## Contact
 
 Issues and ideas: [GitHub issues](https://github.com/BerziOnline/zoraxy-waf/issues).
