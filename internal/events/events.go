@@ -487,7 +487,9 @@ type Suggestion struct {
 // nonDetection reports rule IDs that only evaluate scores/correlation and
 // must never be suggested as exceptions.
 func nonDetection(id int) bool {
-	return (id >= 900000 && id < 912000) || (id >= 949000 && id < 950000) || (id >= 959000 && id < 960000) || (id >= 980000 && id < 981000)
+	// 911xxx (method enforcement) is a detection: it is the reason a PUT or
+	// PATCH is reported, and the learning findings and suggestions need it.
+	return (id >= 900000 && id < 911000) || (id >= 949000 && id < 950000) || (id >= 959000 && id < 960000) || (id >= 980000 && id < 981000)
 }
 
 var argVars = map[string]bool{"ARGS": true, "ARGS_GET": true, "ARGS_POST": true, "ARGS_NAMES": true, "ARGS_GET_NAMES": true, "ARGS_POST_NAMES": true}

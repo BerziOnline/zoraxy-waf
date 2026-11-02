@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "drupal",
+  "name": "Drupal",
+  "version": 1,
+  "homepage": "https://www.drupal.org",
+  "detect": {
+    "paths": [
+      "/user/login",
+      "/core/",
+      "/sites/"
+    ]
+  },
+  "methods": "app",
+  "exceptions": [],
+  "crs_plugin": "drupal-rule-exclusions"
+}

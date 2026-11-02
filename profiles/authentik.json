@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "authentik",
+  "name": "authentik",
+  "version": 1,
+  "homepage": "https://goauthentik.io",
+  "detect": {
+    "paths": [
+      "/api/v3/",
+      "/if/flow/",
+      "/application/o/",
+      "/outpost.goauthentik.io/"
+    ],
+    "upstream_ports": [
+      9000,
+      9443
+    ]
+  },
+  "methods": "app",
+  "exceptions": []
+}

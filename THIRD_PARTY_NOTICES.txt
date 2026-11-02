@@ -21,5 +21,11 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
+OWASP CRS official rule-exclusion plugins (vendored unchanged)
+Copyright CRS project and contributors, Apache-2.0.
+Pinned sources, versions and commit IDs: internal/crsplugins/manifest.json.
+Each package retains its upstream LICENSE under internal/crsplugins/vendor/.
+No upstream NOTICE files were present in the pinned packages.
+
 No Semantic UI JavaScript or third-party font files are bundled. The UI uses
 native controls and an offline system-font fallback.

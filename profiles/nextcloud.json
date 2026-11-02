@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "nextcloud",
+  "name": "Nextcloud",
+  "version": 1,
+  "homepage": "https://nextcloud.com",
+  "detect": {
+    "paths": [
+      "/remote.php/dav",
+      "/ocs/v2.php",
+      "/index.php/apps/"
+    ]
+  },
+  "methods": "app",
+  "exceptions": [],
+  "crs_plugin": "nextcloud-rule-exclusions"
+}

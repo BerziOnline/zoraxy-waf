@@ -1,0 +1,176 @@
+{
+  "registry": "https://github.com/coreruleset/plugin-registry",
+  "plugins": [
+    {
+      "ci": true,
+      "license": "Apache-2.0",
+      "name": "drupal-rule-exclusions",
+      "repository": "https://github.com/coreruleset/drupal-rule-exclusions-plugin",
+      "rule_id_range": {
+        "end": 9506999,
+        "start": 9506000
+      },
+      "status": "tested",
+      "type": "official",
+      "commit": "6771319cf184690d33d3251e3dac76e39c54c7f6",
+      "version": "v1.0.0",
+      "files": [
+        "LICENSE",
+        "plugins/drupal-rule-exclusions-before.conf",
+        "plugins/drupal-rule-exclusions-config.conf"
+      ],
+      "shipped": true
+    },
+    {
+      "ci": true,
+      "license": "Apache-2.0",
+      "name": "wordpress-rule-exclusions",
+      "repository": "https://github.com/coreruleset/wordpress-rule-exclusions-plugin",
+      "rule_id_range": {
+        "end": 9507999,
+        "start": 9507000
+      },
+      "status": "tested",
+      "type": "official",
+      "commit": "161bb90bb0d543f805fc6cd966a7c53a2e5b08de",
+      "version": "v1.2.0",
+      "files": [
+        "LICENSE",
+        "plugins/wordpress-rule-exclusions-before.conf",
+        "plugins/wordpress-rule-exclusions-config.conf"
+      ],
+      "shipped": true
+    },
+    {
+      "ci": true,
+      "license": "Apache-2.0",
+      "name": "nextcloud-rule-exclusions",
+      "repository": "https://github.com/coreruleset/nextcloud-rule-exclusions-plugin",
+      "rule_id_range": {
+        "end": 9508999,
+        "start": 9508000
+      },
+      "status": "tested",
+      "type": "official",
+      "commit": "d907a20c7ca9c27d5666185c8ffab58f859d4832",
+      "version": "v1.7.1",
+      "files": [
+        "LICENSE",
+        "plugins/nextcloud-rule-exclusions-before.conf",
+        "plugins/nextcloud-rule-exclusions-config.conf"
+      ],
+      "shipped": true
+    },
+    {
+      "ci": true,
+      "license": "Apache-2.0",
+      "name": "dokuwiki-rule-exclusions",
+      "repository": "https://github.com/coreruleset/dokuwiki-rule-exclusions-plugin",
+      "rule_id_range": {
+        "end": 9509999,
+        "start": 9509000
+      },
+      "status": "tested",
+      "type": "official",
+      "commit": "00996762a746ecfe85d6ccc022f2a3efb44377a7",
+      "version": "v1.0.0",
+      "files": [
+        "LICENSE",
+        "plugins/dokuwiki-rule-exclusions-before.conf",
+        "plugins/dokuwiki-rule-exclusions-config.conf"
+      ],
+      "shipped": true
+    },
+    {
+      "ci": true,
+      "license": "Apache-2.0",
+      "name": "cpanel-rule-exclusions",
+      "repository": "https://github.com/coreruleset/cpanel-rule-exclusions-plugin",
+      "rule_id_range": {
+        "end": 9510999,
+        "start": 9510000
+      },
+      "status": "tested",
+      "type": "official",
+      "commit": "2fd1cab8706c760fe9cdccf55afe75b94a66f89f",
+      "version": "v1.0.0",
+      "files": [
+        "LICENSE",
+        "plugins/cpanel-rule-exclusions-before.conf",
+        "plugins/cpanel-rule-exclusions-config.conf"
+      ],
+      "shipped": true
+    },
+    {
+      "ci": true,
+      "license": "Apache-2.0",
+      "name": "xenforo-rule-exclusions",
+      "repository": "https://github.com/coreruleset/xenforo-rule-exclusions-plugin",
+      "rule_id_range": {
+        "end": 9511999,
+        "start": 9511000
+      },
+      "status": "tested",
+      "type": "official",
+      "commit": "193288ac2faa8ccbc4d86cdf829047f477812f28",
+      "version": "v1.0.0",
+      "files": [
+        "LICENSE",
+        "plugins/xenforo-rule-exclusions-before.conf",
+        "plugins/xenforo-rule-exclusions-config.conf"
+      ],
+      "shipped": true
+    },
+    {
+      "ci": true,
+      "license": "Apache-2.0",
+      "name": "phpbb-rule-exclusions",
+      "repository": "https://github.com/coreruleset/phpbb-rule-exclusions-plugin",
+      "rule_id_range": {
+        "end": 9512999,
+        "start": 9512000
+      },
+      "status": "tested",
+      "type": "official",
+      "commit": "5f1e03417cd73f1a5f22040bf06680e86e49d71e",
+      "version": "v1.0.0",
+      "files": [
+        "LICENSE",
+        "plugins/phpbb-rule-exclusions-before.conf",
+        "plugins/phpbb-rule-exclusions-config.conf"
+      ],
+      "shipped": true
+    },
+    {
+      "ci": true,
+      "license": "Apache-2.0",
+      "name": "phpmyadmin-rule-exclusions",
+      "repository": "https://github.com/coreruleset/phpmyadmin-rule-exclusions-plugin",
+      "rule_id_range": {
+        "end": 9513999,
+        "start": 9513000
+      },
+      "status": "tested",
+      "type": "official",
+      "commit": "6629e888b9f9fee9ae8288a335233e2f37a5c0a5",
+      "version": "v1.1.0",
+      "shipped": false,
+      "skip_reason": "The after file uses global SecRuleUpdateTargetById; transaction host gates cannot scope these changes."
+    },
+    {
+      "ci": true,
+      "license": "Apache-2.0",
+      "name": "ghost-rule-exclusions",
+      "private": true,
+      "repository": "https://github.com/coreruleset/ghost-rule-exclusions-plugin",
+      "rule_id_range": {
+        "end": 9518999,
+        "start": 9518000
+      },
+      "status": "draft",
+      "type": "official",
+      "shipped": false,
+      "skip_reason": "HTTP Error 404: Not Found"
+    }
+  ]
+}

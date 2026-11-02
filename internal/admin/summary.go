@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"zoraxy-waf-plugin/internal/config"
@@ -15,22 +16,24 @@ import (
 // Summary feeds the overview: every number carries its window so the UI never
 // shows a bare counter (today vs. 7-day average, "last N events", ...).
 type Summary struct {
-	GeneratedAt time.Time       `json:"generated_at"`
-	Mode        string          `json:"mode"`
-	Engine      string          `json:"engine"`
-	Health      service.Health  `json:"health"`
-	Stats       service.Stats   `json:"stats"`
-	History     history.Summary `json:"history"`
-	Window      Window          `json:"window"`
-	Categories  []KV            `json:"categories"`
-	TopHosts    []KV            `json:"top_hosts"`
-	TopRules    []KV            `json:"top_rules"`
-	TopIPs      []KV            `json:"top_ips"`
-	Protection  Protection      `json:"protection"`
-	Exceptions  ExceptionStats  `json:"exceptions"`
-	HostsOff    []string        `json:"hosts_off"`
-	HostsReport []string        `json:"hosts_report"`
-	HostsBlock  []string        `json:"hosts_block"`
+	GeneratedAt time.Time               `json:"generated_at"`
+	Mode        string                  `json:"mode"`
+	Engine      string                  `json:"engine"`
+	Health      service.Health          `json:"health"`
+	Stats       service.Stats           `json:"stats"`
+	History     history.Summary         `json:"history"`
+	Window      Window                  `json:"window"`
+	Categories  []KV                    `json:"categories"`
+	TopHosts    []KV                    `json:"top_hosts"`
+	TopRules    []KV                    `json:"top_rules"`
+	TopIPs      []KV                    `json:"top_ips"`
+	Protection  Protection              `json:"protection"`
+	Exceptions  ExceptionStats          `json:"exceptions"`
+	HostsOff    []string                `json:"hosts_off"`
+	HostsReport []string                `json:"hosts_report"`
+	HostsBlock  []string                `json:"hosts_block"`
+	Learning    service.LearningSummary `json:"learning"`
+	Uncovered   []string                `json:"uncovered"` // Zoraxy routes no tag sends through the WAF
 }
 
 // Window describes which events the top lists were computed from.
@@ -50,16 +53,16 @@ type KV struct {
 // Protection mirrors Wordfence's status circle: a score out of 100 made of
 // named, actionable checks; each check links to the tab that fixes it.
 type Protection struct {
-	Score int              `json:"score"`
 	Items []ProtectionItem `json:"items"`
 }
 
 type ProtectionItem struct {
 	ID     string `json:"id"`
 	OK     bool   `json:"ok"`
-	Weight int    `json:"weight"`
 	Label  string `json:"label"`
-	Hint   string `json:"hint"` // what to do when not OK, empty when OK
+	Hint   string `json:"hint,omitempty"`   // detail when not OK
+	Action string `json:"action,omitempty"` // button label when not OK
+	Info   bool   `json:"info,omitempty"`   // not OK, but possibly on purpose (shown neutral)
 	Tab    string `json:"tab"`
 }
 
@@ -135,6 +138,8 @@ func summarize(s *service.Service, now time.Time, loc *time.Location) Summary {
 			out.HostsReport = append(out.HostsReport, host)
 		case config.ModeBlock:
 			out.HostsBlock = append(out.HostsBlock, host)
+		case config.ModeLearn:
+			out.HostsReport = append(out.HostsReport, host)
 		}
 	}
 	sort.Strings(out.HostsOff)
@@ -151,40 +156,95 @@ func summarize(s *service.Service, now time.Time, loc *time.Location) Summary {
 			out.Exceptions.Active++
 		}
 	}
+	rows, _ := s.HostStatuses(0) // cached route list; the overview never waits for Zoraxy
+	out.Learning = service.SummarizeLearning(rows)
+	out.Uncovered = []string{}
+	for _, r := range rows {
+		if r.InZoraxy && !r.Protected && !r.Disabled && !r.Wildcard {
+			out.Uncovered = append(out.Uncovered, r.Host)
+		}
+	}
 	out.Protection = protection(cfg, health, s.Events().Stats(), out)
 	return out
 }
 
 func protection(cfg config.Config, h service.Health, feed events.Stats, sum Summary) Protection {
 	var items []ProtectionItem
-	add := func(id string, ok bool, weight int, label, hint, tab string) {
+	// add records one status line. A line that is not OK names the action
+	// (button label) and the tab where the user does it.
+	add := func(id string, ok bool, label, hint, action, tab string) {
 		if ok {
-			hint = ""
+			hint, action = "", ""
 		}
-		items = append(items, ProtectionItem{ID: id, OK: ok, Weight: weight, Label: label, Hint: hint, Tab: tab})
+		items = append(items, ProtectionItem{ID: id, OK: ok, Label: label, Hint: hint, Action: action, Tab: tab})
 	}
-	add("engine", h.Engine.OK, 20, "Engine ready", "The inspection engine reports a problem: "+h.Engine.Detail, "settings")
+	if h.Engine.OK {
+		add("engine", true, "Engine ready", "", "", "settings")
+	} else {
+		add("engine", false, "Engine problem", h.Engine.Detail, "Settings", "settings")
+	}
 	switch cfg.Mode {
 	case config.ModeBlock:
-		add("mode", true, 40, "Blocking attacks", "", "settings")
+		add("mode", true, "Blocking attacks", "", "", "settings")
+	case config.ModeLearn:
+		l := sum.Learning
+		switch {
+		case l.Open > 0:
+			add("mode", false, plural(l.Open, "open finding keeps a host", "open findings keep hosts")+" learning", "", "Review findings", "learning")
+		case l.Learning == 0 && l.Blocking > 0:
+			add("mode", true, fmt.Sprintf("All %d hosts block", l.Hosts), "", "", "learning")
+		default:
+			add("mode", true, fmt.Sprintf("Learning: %d of %d hosts block, no open findings", l.Blocking, l.Hosts), "", "", "learning")
+		}
 	case config.ModeReport:
-		add("mode", false, 40, "Learning mode: attacks are recorded, not blocked",
-			fmt.Sprintf("%d attacks in the last 7 days reached your sites. When the Learning tab shows no false positives, switch Default mode to Block.", sum.History.D7.Attacks()), "settings")
+		add("mode", false, "Report only: nothing is blocked",
+			fmt.Sprintf("%d attacks in the last 7 days reached your sites.", sum.History.D7.Attacks()), "Change default mode", "settings")
 	default:
-		add("mode", false, 40, "Inspection is off", "Requests are not inspected. Start with Report only, then Block.", "settings")
-	}
-	add("hosts", len(sum.HostsOff) == 0, 15, "No host switched off", fmt.Sprintf("Hosts without inspection: %v", sum.HostsOff), "hosts")
-	add("exceptions", sum.Exceptions.Expired == 0, 10, "Exceptions tidy",
-		fmt.Sprintf("%d expired exception(s) still listed; remove or renew them so the list stays reviewable.", sum.Exceptions.Expired), "exceptions")
-	add("feed", feed.WriteErrors == 0 && feed.Dropped == 0, 15, "Event log healthy",
-		fmt.Sprintf("JSONL feed: %d dropped, %d write errors. Check disk space and retention settings.", feed.Dropped, feed.WriteErrors), "settings")
-	score := 0
-	for _, it := range items {
-		if it.OK {
-			score += it.Weight
+		if cfg.SetupRequired() {
+			add("mode", false, "Inspection is off", "", "Turn on", "overview")
+		} else {
+			add("mode", false, "Inspection is off", "", "Change default mode", "settings")
 		}
 	}
-	return Protection{Score: score, Items: items}
+	if len(sum.HostsOff) == 0 {
+		add("hosts", true, "No host switched off", "", "", "hosts")
+	} else {
+		add("hosts", false, "Not inspected: "+strings.Join(sum.HostsOff, ", "), "", "Hosts", "hosts")
+	}
+	if n := len(sum.Uncovered); n > 0 {
+		list := sum.Uncovered
+		if n > 3 {
+			list = append(append([]string{}, list[:3]...), fmt.Sprintf("+%d", n-3))
+		}
+		items = append(items, ProtectionItem{ID: "coverage", Label: "Not inspected (no WAF tag in Zoraxy): " + strings.Join(list, ", "), Action: "Hosts", Tab: "hosts", Info: true})
+	}
+	// Only shown when Zoraxy does not deliver the body the WAF is set to inspect.
+	if h.BodiesMissing > 0 {
+		add("bodies", false, "Request bodies are not inspected",
+			"Zoraxy sends no request bodies to the WAF. Update Zoraxy to a version with dynamic_capture_sniff_body_kb, then restart it.", "", "settings")
+	} else if h.ZoraxyBodyKB > 0 {
+		add("bodies", false, fmt.Sprintf("Zoraxy sends only %d KiB of each request body", h.ZoraxyBodyKB),
+			"Zoraxy reads the body size when it starts. Restart Zoraxy to use the size from the settings.", "", "settings")
+	}
+	if sum.Exceptions.Expired == 0 {
+		add("exceptions", true, "No expired exceptions", "", "", "exceptions")
+	} else {
+		add("exceptions", false, plural(sum.Exceptions.Expired, "expired exception", "expired exceptions"), "", "Exceptions", "exceptions")
+	}
+	if feed.WriteErrors == 0 && feed.Dropped == 0 {
+		add("feed", true, "Event log healthy", "", "", "settings")
+	} else {
+		add("feed", false, fmt.Sprintf("Event log: %d dropped, %d write errors", feed.Dropped, feed.WriteErrors), "Check the disk space of the Zoraxy host.", "Settings", "settings")
+	}
+	return Protection{Items: items}
+}
+
+// plural formats "1 thing" or "n things".
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }
 
 // Widget is the compact card Zoraxy renders on its own status page (IntroSpect
@@ -218,12 +278,17 @@ func widget(sum Summary) Widget {
 		w.Headline = "Engine problem"
 	case sum.Mode == config.ModeBlock:
 		w.State, w.Headline = "ok", "Blocking attacks"
+	case sum.Mode == config.ModeLearn:
+		w.Headline = fmt.Sprintf("Learning: %d of %d hosts block", sum.Learning.Blocking, sum.Learning.Hosts)
+		if sum.Learning.Learning == 0 && sum.Learning.Blocking > 0 {
+			w.State, w.Headline = "ok", "Blocking attacks"
+		}
 	case sum.Mode == config.ModeReport:
-		w.Headline = "Learning mode (report only)"
+		w.Headline = "Report only (never blocks)"
 	default:
 		w.State, w.Headline = "off", "Inspection off"
 	}
-	w.Sub = fmt.Sprintf("Protection %d %% · %s", sum.Protection.Score, sum.Health.EngineName)
+	w.Sub = sum.Health.EngineName
 	if sum.Health.Engine.RuleSet != "" {
 		w.Sub += " · " + sum.Health.Engine.RuleSet
 	}
@@ -240,7 +305,7 @@ func widget(sum Summary) Widget {
 	w.Metrics = append(w.Metrics,
 		WidgetMetric{Label: "Attacks today", Value: strconv.FormatUint(hist.Today.Attacks(), 10), Note: avg},
 		WidgetMetric{Label: "Blocked (24 h)", Value: strconv.FormatUint(hist.H24.Blocked, 10), Note: "stopped before routing"},
-		WidgetMetric{Label: "Recorded only (24 h)", Value: strconv.FormatUint(hist.H24.WouldBlock, 10), Note: "learning mode / report hosts"},
+		WidgetMetric{Label: "Not blocked (24 h)", Value: strconv.FormatUint(hist.H24.WouldBlock, 10), Note: "learning or report only"},
 		WidgetMetric{Label: "Errors (24 h)", Value: strconv.FormatUint(hist.H24.Error+hist.H24.Oversize, 10), Note: fmt.Sprintf("%s clean requests allowed", strconv.FormatUint(hist.H24.Allowed, 10))})
 	for i, c := range sum.Categories {
 		if i == 4 {

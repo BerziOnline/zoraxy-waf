@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "mattermost",
+  "name": "Mattermost",
+  "version": 2,
+  "homepage": "https://mattermost.com",
+  "detect": {
+    "paths": [
+      "/api/v4/",
+      "/plugins/"
+    ],
+    "upstream_ports": [
+      8065
+    ]
+  },
+  "methods": "app",
+  "exceptions": [
+    {
+      "rules": [
+        932125,
+        932380,
+        932235
+      ],
+      "method": "POST",
+      "path": "/api/v4/posts",
+      "argument": "json.message",
+      "reason": "Chat messages can contain text that looks like shell or PowerShell commands.",
+      "target_class": "command"
+    },
+    {
+      "rules": [
+        933210
+      ],
+      "method": "POST",
+      "path": "/api/v4/posts",
+      "argument": "json.message",
+      "reason": "Chat messages can contain code snippets that look like PHP.",
+      "target_class": "php"
+    },
+    {
+      "rules": [
+        932235
+      ],
+      "method": "POST",
+      "path": "/plugins/playbooks/api/v0/query",
+      "argument": "json.query",
+      "reason": "The Playbooks plugin sends GraphQL query text in this field.",
+      "target_class": "command"
+    },
+    {
+      "rules": [
+        931100
+      ],
+      "method": "PUT",
+      "path": "/api/v4/posts/*",
+      "argument": "json.props.attachments.0.actions.0.integration.url",
+      "reason": "Interactive message buttons call integration URLs, which can point to an internal IP address.",
+      "target_class": "rfi"
+    }
+  ]
+}

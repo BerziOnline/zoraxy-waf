@@ -42,7 +42,7 @@ func TestValidateRejects(t *testing.T) {
 	now := time.Now().UTC()
 	mut := map[string]func(c *Config){
 		"engine":              func(c *Config) { c.Engine = "modsec" },
-		"mode":                func(c *Config) { c.Mode = "learn" },
+		"mode":                func(c *Config) { c.Mode = "chaos" },
 		"body kb low":         func(c *Config) { c.MaxBodyKB = 0 },
 		"body kb high":        func(c *Config) { c.MaxBodyKB = 1025 },
 		"timeout low":         func(c *Config) { c.BodyTimeoutMS = 99 },
@@ -50,7 +50,7 @@ func TestValidateRejects(t *testing.T) {
 		"pl 0":                func(c *Config) { c.Coraza.ParanoiaLevel = 0 },
 		"pl 5":                func(c *Config) { c.Coraza.ParanoiaLevel = 5 },
 		"threshold":           func(c *Config) { c.Coraza.AnomalyThreshold = 0 },
-		"host mode":           func(c *Config) { c.Hosts = map[string]HostOverride{"a.example": {Mode: "learn"}} },
+		"host mode":           func(c *Config) { c.Hosts = map[string]HostOverride{"a.example": {Mode: "chaos"}} },
 		"host key upper":      func(c *Config) { c.Hosts = map[string]HostOverride{"A.example": {Mode: ModeBlock}} },
 		"host key space":      func(c *Config) { c.Hosts = map[string]HostOverride{"a example": {Mode: ModeBlock}} },
 		"host body":           func(c *Config) { c.Hosts = map[string]HostOverride{"a.example": {Mode: ModeBlock, MaxBodyKB: 2048}} },

@@ -6,6 +6,7 @@ var crsFamilies = []struct {
 	from, to int
 	name     string
 }{
+	{911000, 912000, "Method not allowed"},
 	{913000, 914000, "Scanner / bot"},
 	{920000, 921000, "Protocol violation"},
 	{921000, 922000, "Protocol attack"},

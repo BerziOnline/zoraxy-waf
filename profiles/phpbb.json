@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "phpbb",
+  "name": "phpBB",
+  "version": 1,
+  "homepage": "https://www.phpbb.com",
+  "detect": {
+    "paths": [
+      "/viewtopic.php",
+      "/viewforum.php",
+      "/ucp.php"
+    ]
+  },
+  "methods": "app",
+  "exceptions": [],
+  "crs_plugin": "phpbb-rule-exclusions"
+}

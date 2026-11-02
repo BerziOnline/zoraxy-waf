@@ -292,13 +292,18 @@ func TestOversizedBodyPartialCoverage(t *testing.T) {
 	if r := callInspect(t, s, attack); r.result.Action != "deny" || r.result.Status != 403 {
 		t.Fatalf("block truncated attack: %+v", r)
 	}
-	r = callInspect(t, s, payload("POST", "/upload", "name=report&data="+strings.Repeat("a", 500), truncated()))
-	if r.result.Action != "deny" || r.result.Status != 413 {
-		t.Fatalf("block mode must not treat a clean prefix as a clean body: %+v", r)
+	clean := payload("POST", "/upload", "name=report&data="+strings.Repeat("a", 500), truncated())
+	r = callInspect(t, s, clean)
+	if r.result.Action != "allow" {
+		t.Fatalf("block mode must let a clean prefix through by default (uploads are normal traffic): %+v", r)
 	}
 	ev, _ = s.Events().Get(r.result.EventID)
 	if ev.Action != events.ActionOversize || ev.Coverage != "partial" {
-		t.Fatalf("oversize event %+v", ev)
+		t.Fatalf("oversize event must record partial coverage %+v", ev)
+	}
+	setMode(t, s, config.ModeBlock, func(c *config.Config) { c.RejectOversize = true })
+	if r := callInspect(t, s, clean); r.result.Action != "deny" || r.result.Status != 413 {
+		t.Fatalf("reject_oversize must turn a clean prefix into 413: %+v", r)
 	}
 }
 
@@ -363,23 +368,42 @@ func TestEngineErrorIsInspectionFailureNotVerdict(t *testing.T) {
 }
 
 func TestBoundedConcurrencySaturation(t *testing.T) {
+	// A request beyond capacity waits for a slot; if one frees up in time it is
+	// inspected normally, otherwise it is reported as saturated after the body timeout.
 	fe := &fakeEngine{block: make(chan struct{}), started: make(chan struct{}, 1)}
 	s := newSvc(t, Options{Build: func(config.Config) (engine.Engine, error) { return fe, nil }})
-	setMode(t, s, config.ModeBlock, func(c *config.Config) { c.MaxConcurrent = 1 })
+	setMode(t, s, config.ModeBlock, func(c *config.Config) { c.MaxConcurrent = 1; c.BodyTimeoutMS = 1000 })
 	done := make(chan ipcResp)
 	go func() { done <- callInspect(t, s, payload("GET", "/", "")) }()
 	<-fe.started
+	second := make(chan ipcResp)
 	start := time.Now()
-	r := callInspect(t, s, payload("GET", "/", ""))
-	if r.code != http.StatusServiceUnavailable || time.Since(start) > time.Second {
-		t.Fatalf("saturation must fail fast: %+v after %v", r, time.Since(start))
-	}
-	close(fe.block)
+	go func() { second <- callInspect(t, s, payload("GET", "/", "")) }()
+	time.Sleep(150 * time.Millisecond)
+	close(fe.block) // frees the slot while the second request is still waiting
 	if r := <-done; r.code != 200 {
 		t.Fatalf("first request: %+v", r)
 	}
-	if st := s.Stats(); st.Saturated != 1 || fe.calls.Load() != 1 {
-		t.Fatalf("saturation stats %+v calls=%d", st, fe.calls.Load())
+	if r := <-second; r.code != 200 || time.Since(start) < 100*time.Millisecond {
+		t.Fatalf("queued request must be inspected once a slot frees up: %+v after %v", r, time.Since(start))
+	}
+	if st := s.Stats(); st.Saturated != 0 || fe.calls.Load() != 2 {
+		t.Fatalf("no saturation expected %+v calls=%d", st, fe.calls.Load())
+	}
+
+	fe2 := &fakeEngine{block: make(chan struct{}), started: make(chan struct{}, 1)}
+	s2 := newSvc(t, Options{Build: func(config.Config) (engine.Engine, error) { return fe2, nil }})
+	setMode(t, s2, config.ModeBlock, func(c *config.Config) { c.MaxConcurrent = 1; c.BodyTimeoutMS = 200 })
+	go func() { callInspect(t, s2, payload("GET", "/", "")) }()
+	<-fe2.started
+	start = time.Now()
+	r := callInspect(t, s2, payload("GET", "/", ""))
+	if r.code != http.StatusServiceUnavailable || time.Since(start) < 150*time.Millisecond || time.Since(start) > time.Second {
+		t.Fatalf("saturation must wait up to the body timeout, then fail: %+v after %v", r, time.Since(start))
+	}
+	close(fe2.block)
+	if st := s2.Stats(); st.Saturated != 1 || fe2.calls.Load() != 1 {
+		t.Fatalf("saturation stats %+v calls=%d", st, fe2.calls.Load())
 	}
 }
 

@@ -33,7 +33,10 @@ type HistoryEntry struct {
 	Time     time.Time `json:"time"`
 	Revision uint64    `json:"revision"`
 	Changes  []Change  `json:"changes"`
-	Snapshot Config    `json:"snapshot"`
+	// Note says why the plugin itself made the change (learning finished,
+	// activation); empty for saves from the UI.
+	Note     string `json:"note,omitempty"`
+	Snapshot Config `json:"snapshot"`
 }
 
 // PublicHistoryEntry is what the UI lists: no snapshot, no secret values.
@@ -41,6 +44,7 @@ type PublicHistoryEntry struct {
 	Time     time.Time `json:"time"`
 	Revision uint64    `json:"revision"`
 	Changes  []Change  `json:"changes"`
+	Note     string    `json:"note,omitempty"`
 }
 
 var secretFields = map[string]bool{"crowdsec.api_key": true}
@@ -203,7 +207,7 @@ func History(dir string, limit int) ([]PublicHistoryEntry, error) {
 	out := make([]PublicHistoryEntry, 0, len(entries))
 	for i := len(entries) - 1; i >= 0 && (limit <= 0 || len(out) < limit); i-- {
 		e := entries[i]
-		out = append(out, PublicHistoryEntry{Time: e.Time, Revision: e.Revision, Changes: e.Changes})
+		out = append(out, PublicHistoryEntry{Time: e.Time, Revision: e.Revision, Changes: e.Changes, Note: e.Note})
 	}
 	return out, nil
 }

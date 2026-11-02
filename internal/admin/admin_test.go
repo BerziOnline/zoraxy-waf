@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,16 +15,106 @@ import (
 	"zoraxy-waf-plugin/internal/service"
 )
 
+// setup starts an already activated installation (mode off, revision 0), so
+// the tests can switch modes with plain saves; freshSetup is a new install.
 func setup(t *testing.T) (*service.Service, http.Handler) {
+	t.Helper()
+	dir := t.TempDir()
+	c := config.Default()
+	c.Learning.ActivatedAt = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	if err := config.Save(filepath.Join(dir, "config.json"), c); err != nil {
+		t.Fatal(err)
+	}
+	return start(t, dir)
+}
+
+func freshSetup(t *testing.T) (*service.Service, http.Handler) { return start(t, t.TempDir()) }
+
+func start(t *testing.T, dir string) (*service.Service, http.Handler) {
 	t.Helper()
 	// Fake GC setter: admin tests must not depend on or change the GOGC of the test process.
 	gc := 100
-	s, err := service.New(service.Options{DataDir: t.TempDir(), SetGCPercent: func(v int) int { old := gc; gc = v; return old }})
+	s, err := service.New(service.Options{DataDir: dir, SetGCPercent: func(v int) int { old := gc; gc = v; return old }, MaintenanceEvery: -1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(s.Close)
 	return s, Handler(s)
+}
+
+// An install that ran before activation existed (mode report, no activation
+// time) counts as activated: off and back on must not bring the setup back.
+func TestEnabledInstallWithoutActivationTimeStaysActivated(t *testing.T) {
+	dir := t.TempDir()
+	c := config.Default()
+	c.Mode = config.ModeReport
+	if err := config.Save(filepath.Join(dir, "config.json"), c); err != nil {
+		t.Fatal(err)
+	}
+	s, h := start(t, dir)
+	for _, mode := range []string{config.ModeOff, config.ModeReport, config.ModeBlock} {
+		c = s.Current()
+		c.Mode = mode
+		b, _ := json.Marshal(c)
+		if w := call(h, "PUT", "/ui/api/config", string(b), "trusted", "trusted"); w.Code != 200 {
+			t.Fatalf("switch to %s: %d %s", mode, w.Code, w.Body)
+		}
+	}
+	if s.Current().Learning.ActivatedAt.IsZero() {
+		t.Fatal("the first save of an enabled install must record the activation")
+	}
+}
+
+// A fresh install can only be switched on through the activation dialog:
+// learning period (default 7 days) or block now with explicit risk.
+func TestFreshInstallMustBeActivated(t *testing.T) {
+	s, h := freshSetup(t)
+	w := call(h, "GET", "/ui/api/state", "", "trusted", "")
+	if !strings.Contains(w.Body.String(), `"setup_required":true`) || !strings.Contains(w.Body.String(), `"days":7`) {
+		t.Fatalf("fresh state must require setup with 7 days default: %s", w.Body)
+	}
+	c := s.Current()
+	c.Mode = config.ModeBlock
+	b, _ := json.Marshal(c)
+	if w := call(h, "PUT", "/ui/api/config", string(b), "trusted", "trusted"); w.Code != 409 || !strings.Contains(w.Body.String(), "activate the WAF first") {
+		t.Fatalf("plain save switched a fresh install on: %d %s", w.Code, w.Body)
+	}
+	c = s.Current()
+	c.Hosts["shop.example"] = config.HostOverride{Mode: config.ModeBlock}
+	b, _ = json.Marshal(c)
+	if w := call(h, "PUT", "/ui/api/config", string(b), "trusted", "trusted"); w.Code != 409 {
+		t.Fatalf("host block on a fresh install bypassed activation: %d", w.Code)
+	}
+	if w := call(h, "POST", "/ui/api/hosts/restart", `{"host":"shop.example"}`, "trusted", "trusted"); w.Code != 409 {
+		t.Fatalf("restart learning bypassed activation: %d %s", w.Code, w.Body)
+	}
+	if w := call(h, "POST", "/ui/api/activate", `{"mode":"block","days":7}`, "trusted", "trusted"); w.Code != 400 {
+		t.Fatalf("block without risk confirmation = %d", w.Code)
+	}
+	if w := call(h, "POST", "/ui/api/activate", `{"mode":"learn","days":10}`, "trusted", "trusted"); w.Code != 200 {
+		t.Fatalf("activate learn = %d %s", w.Code, w.Body)
+	}
+	if c := s.Current(); c.Mode != config.ModeLearn || c.Learning.Days != 10 || c.Learning.ActivatedAt.IsZero() {
+		t.Fatalf("activation not applied: %+v", c.Learning)
+	}
+	if w := call(h, "POST", "/ui/api/activate", `{"mode":"learn","days":7}`, "trusted", "trusted"); w.Code != 409 {
+		t.Fatalf("second activation = %d", w.Code)
+	}
+	// After activation, plain saves work again; the activation time is server-owned.
+	c = s.Current()
+	c.Mode = config.ModeReport
+	c.Learning.ActivatedAt = time.Time{}
+	b, _ = json.Marshal(c)
+	if w := call(h, "PUT", "/ui/api/config", string(b), "trusted", "trusted"); w.Code != 200 {
+		t.Fatalf("save after activation = %d %s", w.Code, w.Body)
+	}
+	if s.Current().Learning.ActivatedAt.IsZero() {
+		t.Fatal("client cleared the activation time")
+	}
+	w = call(h, "GET", "/ui/api/hosts", "", "trusted", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"app_methods":["PUT","PATCH","DELETE"]`) || !strings.Contains(w.Body.String(), `"available":false`) {
+		t.Fatalf("hosts endpoint: %d %s", w.Code, w.Body)
+	}
 }
 func call(h http.Handler, method, path, body, proxy, csrf string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, "http://admin.example"+path, strings.NewReader(body))
@@ -221,7 +312,7 @@ func TestSpeedSavedThroughAdminAndReportedInState(t *testing.T) {
 	if st.GCPercent != 800 {
 		t.Fatalf("rejected save changed runtime GC target to %d", st.GCPercent)
 	}
-	for _, text := range []string{`id="gc-target"`, `value="400"`, "Measured performance", "CPU cores", "Same rules, same detection"} {
+	for _, text := range []string{`id="gc-target"`, `value="400"`, "Lab values on a 2-vCPU machine", "Detection stays the same"} {
 		w := call(h, "GET", "/ui/", "", "token", "")
 		if !strings.Contains(w.Body.String(), text) {
 			t.Fatalf("UI missing %q", text)

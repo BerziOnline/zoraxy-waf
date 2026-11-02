@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -17,18 +18,55 @@ import (
 
 	"zoraxy-waf-plugin/internal/admin"
 	"zoraxy-waf-plugin/internal/branding"
+	"zoraxy-waf-plugin/internal/config"
 	"zoraxy-waf-plugin/internal/engine/coraza"
 	"zoraxy-waf-plugin/internal/service"
 	"zoraxy-waf-plugin/internal/wire"
+	"zoraxy-waf-plugin/internal/zoraxy"
 )
 
-func introspect() wire.IntroSpect {
-	return wire.IntroSpect{ID: "org.zoraxy.waf", Name: "Zoraxy WAF", Author: "Zoraxy WAF contributors", AuthorContact: "https://github.com/BerziOnline/zoraxy-waf/issues", URL: "https://github.com/BerziOnline/zoraxy-waf", Description: "Selectable Coraza CRS or CrowdSec AppSec request inspection; allowed traffic continues normal Zoraxy routing.", Type: wire.PluginTypeRouter, VersionMajor: 0, VersionMinor: 1, RequestInspect: "/inspect", RequestInspectPolicy: "/policy", RequestInspectMaxBody: 64, UIPath: "/ui", DashboardWidget: "/api/widget", StaticCapturePaths: []wire.StaticCaptureRule{}, SubscriptionsEvents: map[string]string{}, PermittedAPIEndpoints: []wire.PermittedAPIEndpoint{}}
+const pluginID = "org.zoraxy.waf"
+
+// dataDir is where config.json and the records live: ZORAXY_WAF_DATA_DIR or
+// data/ next to the binary.
+func dataDir(exe string) string {
+	if dir := os.Getenv("ZORAXY_WAF_DATA_DIR"); dir != "" {
+		return dir
+	}
+	return filepath.Join(filepath.Dir(exe), "data")
+}
+
+// sniffBodyKB reads the saved settings: Zoraxy asks once at its start how
+// much body to send, so it gets the largest size any host is set to.
+func sniffBodyKB() int {
+	exe, err := os.Executable()
+	if err != nil {
+		return config.Default().SniffBodyKB()
+	}
+	c, err := config.Load(filepath.Join(dataDir(exe), "config.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return config.Default().SniffBodyKB()
+	}
+	if err != nil {
+		// Unreadable settings: ask for the most, the plugin cuts per host.
+		return 1024
+	}
+	return c.SniffBodyKB()
+}
+
+// introspect describes the plugin to Zoraxy. bodyKB is the request body
+// prefix Zoraxy sends with each sniff call.
+func introspect(bodyKB int) wire.IntroSpect {
+	return wire.IntroSpect{DynamicCaptureSniffBodyKB: bodyKB, ID: pluginID, Name: "Zoraxy WAF", Author: "Zoraxy WAF contributors", AuthorContact: "https://github.com/BerziOnline/zoraxy-waf/issues", URL: "https://github.com/BerziOnline/zoraxy-waf", Description: "Web application firewall (Coraza + OWASP CRS). Inspects requests before routing via the dynamic capture sniffer; allowed traffic continues normal Zoraxy routing.", Type: wire.PluginTypeRouter, VersionMajor: 0, VersionMinor: 1, DynamicCaptureSniff: "/sniff", DynamicCaptureIngress: "/capture", UIPath: "/ui", DashboardWidget: "/api/widget", StaticCapturePaths: []wire.StaticCaptureRule{}, SubscriptionsEvents: map[string]string{}, PermittedAPIEndpoints: []wire.PermittedAPIEndpoint{
+		{Method: "GET", Endpoint: zoraxy.EndpointProxyList, Reason: "Read the HTTP proxy routes to list your hosts in the WAF (read-only)"},
+		{Method: "GET", Endpoint: zoraxy.EndpointPluginGroups, Reason: "See which route tags send traffic through the WAF (read-only)"},
+	}}
 }
 func routes(s *service.Service, stop func()) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/inspect", s.IPCHandler())
-	mux.Handle("/policy", s.IPCHandler())
+	mux.Handle("/sniff/", s.IPCHandler())
+	mux.Handle("/capture/", s.IPCHandler())
 	mux.Handle("/ui/", admin.Handler(s))
 	mux.HandleFunc("/ui/term", func(w http.ResponseWriter, r *http.Request) {
 		// SDK lifecycle endpoint: called directly by the core, never from a UI.
@@ -48,7 +86,7 @@ func routes(s *service.Service, stop func()) http.Handler {
 func run(args []string, out io.Writer) error {
 	for _, arg := range args {
 		if arg == "-introspect" {
-			return json.NewEncoder(out).Encode(introspect())
+			return json.NewEncoder(out).Encode(introspect(sniffBodyKB()))
 		}
 	}
 	cfg, err := wire.ParseConfigureArgs(args)
@@ -58,14 +96,11 @@ func run(args []string, out io.Writer) error {
 	if !coraza.NoDiskSpool {
 		return errors.New("unsafe build: rebuild with -tags no_fs_access to prevent request-body disk spooling")
 	}
-	dir := os.Getenv("ZORAXY_WAF_DATA_DIR")
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	if dir == "" {
-		dir = filepath.Join(filepath.Dir(exe), "data")
-	}
+	dir := dataDir(exe)
 	// Zoraxy shows <plugin root>/icon.png; ship it from the binary so a manual
 	// install needs no extra file. Failure only costs the logo, never the WAF.
 	if _, err := branding.Install(filepath.Dir(exe)); err != nil {
@@ -76,6 +111,11 @@ func run(args []string, out io.Writer) error {
 		return fmt.Errorf("start WAF: %w", err)
 	}
 	defer s.Close()
+	if c := zoraxy.New(cfg.ZoraxyPort, cfg.APIKey, pluginID); c != nil {
+		s.SetRouteSource(c)
+	} else {
+		fmt.Fprintln(out, "Zoraxy gave no plugin API key; the host list shows hosts from traffic and overrides only")
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	server := &http.Server{Addr: "127.0.0.1:" + strconv.Itoa(cfg.Port), Handler: routes(s, cancel), ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}

@@ -9,6 +9,7 @@ import (
 	"zoraxy-waf-plugin/internal/config"
 	"zoraxy-waf-plugin/internal/engine"
 	"zoraxy-waf-plugin/internal/events"
+	"zoraxy-waf-plugin/internal/service"
 )
 
 func TestSummaryAndWidgetFromRealState(t *testing.T) {
@@ -46,13 +47,16 @@ func TestSummaryAndWidgetFromRealState(t *testing.T) {
 	if sum.TopRules[0].Key != "942100" || !strings.HasPrefix(sum.TopRules[0].Label, "rule ") || sum.TopRules[0].Count != 2 {
 		t.Fatalf("rules %+v (scoring rule 949110 must not win)", sum.TopRules)
 	}
-	// Fresh install: engine ok, mode off, no hosts, no exceptions, feed healthy -> 20+15+10+15 = 60.
-	if sum.Protection.Score != 60 || len(sum.Protection.Items) != 5 {
+	// Fresh install: only the mode line needs action, and it says where.
+	if len(sum.Protection.Items) != 5 || notOK(sum.Protection) != "mode" {
 		t.Fatalf("protection %+v", sum.Protection)
 	}
 	for _, it := range sum.Protection.Items {
-		if it.ID == "mode" && (it.OK || it.Hint == "" || it.Tab != "settings") {
+		if it.ID == "mode" && (it.OK || it.Action == "" || it.Tab == "") {
 			t.Fatalf("mode item must be actionable: %+v", it)
+		}
+		if it.OK && (it.Action != "" || it.Hint != "") {
+			t.Fatalf("ok item must not ask for action: %+v", it)
 		}
 	}
 
@@ -66,8 +70,8 @@ func TestSummaryAndWidgetFromRealState(t *testing.T) {
 		t.Fatal(w.Code, w.Body)
 	}
 	sum = summarize(s, now, time.Local)
-	if sum.Protection.Score != 75 || sum.Exceptions.Expired != 1 || len(sum.HostsOff) != 1 {
-		t.Fatalf("protection after change: %d %+v %+v", sum.Protection.Score, sum.Exceptions, sum.HostsOff)
+	if notOK(sum.Protection) != "hosts,exceptions" || sum.Exceptions.Expired != 1 || len(sum.HostsOff) != 1 {
+		t.Fatalf("protection after change: %+v %+v %+v", sum.Protection, sum.Exceptions, sum.HostsOff)
 	}
 
 	w = call(h, "GET", "/ui/api/widget", "", "token", "")
@@ -87,4 +91,30 @@ func TestSummaryAndWidgetFromRealState(t *testing.T) {
 	if w := call(h, "GET", "/ui/api/widget", "", "", ""); w.Code != 403 {
 		t.Fatal("widget must stay behind the Zoraxy proxy", w.Code)
 	}
+}
+
+// notOK lists the ids of the status lines that need action, in order.
+func notOK(p Protection) string {
+	var ids []string
+	for _, it := range p.Items {
+		if !it.OK {
+			ids = append(ids, it.ID)
+		}
+	}
+	return strings.Join(ids, ",")
+}
+
+// Zoraxy routes without the WAF tag are listed neutrally (possibly on
+// purpose), with a way to the host list; more than three are shortened.
+func TestProtectionListsUncoveredRoutes(t *testing.T) {
+	p := protection(config.Default(), service.Health{Engine: engine.Health{OK: true}}, events.Stats{}, Summary{Uncovered: []string{"a.example", "b.example", "c.example", "d.example"}})
+	for _, it := range p.Items {
+		if it.ID == "coverage" {
+			if it.OK || !it.Info || it.Tab != "hosts" || it.Label != "Not inspected (no WAF tag in Zoraxy): a.example, b.example, c.example, +1" {
+				t.Fatalf("coverage line %+v", it)
+			}
+			return
+		}
+	}
+	t.Fatalf("no coverage line in %+v", p.Items)
 }

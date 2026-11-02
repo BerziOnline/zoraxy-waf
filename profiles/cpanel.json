@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "cpanel",
+  "name": "cPanel",
+  "version": 1,
+  "homepage": "https://cpanel.net",
+  "detect": {
+    "paths": [
+      "/cpsess",
+      "/frontend/"
+    ]
+  },
+  "methods": "app",
+  "exceptions": [],
+  "crs_plugin": "cpanel-rule-exclusions"
+}

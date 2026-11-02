@@ -20,6 +20,8 @@ import (
 	"github.com/corazawaf/coraza/v3/types"
 	"github.com/corazawaf/coraza/v3/types/variables"
 
+	"zoraxy-waf-plugin/internal/config"
+	"zoraxy-waf-plugin/internal/crsplugins"
 	"zoraxy-waf-plugin/internal/engine"
 )
 
@@ -58,7 +60,14 @@ Include @owasp_crs/REQUEST-*.conf
 }
 
 // New compiles one WAF per requested paranoia level (1-4).
-func New(levels []int, threshold int) (*Engine, error) {
+func New(levels []int, threshold int) (*Engine, error) { return NewWithPlugins(levels, threshold, nil) }
+
+// NewWithPlugins compiles reviewed packages for their exact canonical hosts.
+func NewWithPlugins(levels []int, threshold int, hosts map[string][]string) (*Engine, error) {
+	before, after, err := crsplugins.Directives(hosts)
+	if err != nil {
+		return nil, err
+	}
 	if len(levels) == 0 {
 		return nil, fmt.Errorf("no paranoia level requested")
 	}
@@ -74,7 +83,7 @@ func New(levels []int, threshold int) (*Engine, error) {
 		if _, ok := e.wafs[pl]; ok {
 			continue
 		}
-		waf, err := corazawaf.NewWAF(corazawaf.NewWAFConfig().WithRootFS(coreruleset.FS).WithDirectives(directives(pl, threshold)))
+		waf, err := corazawaf.NewWAF(corazawaf.NewWAFConfig().WithRootFS(coreruleset.FS).WithDirectives(strings.Replace(directives(pl, threshold), "Include @owasp_crs/REQUEST-*.conf", before+"Include @owasp_crs/REQUEST-*.conf\n"+after, 1)))
 		if err != nil {
 			e.Close()
 			return nil, fmt.Errorf("compile CRS PL%d: %w", pl, err)
@@ -199,7 +208,7 @@ func (e *Engine) Inspect(ctx context.Context, r *engine.Request, o engine.Option
 	if h, _, ok := strings.Cut(host, ":"); ok && !strings.HasPrefix(host, "[") {
 		host = h
 	}
-	tx.SetServerName(host)
+	tx.SetServerName(config.CanonicalHost(host))
 	if r.Host != "" {
 		tx.AddRequestHeader("Host", r.Host)
 	}

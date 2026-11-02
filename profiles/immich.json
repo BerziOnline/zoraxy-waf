@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "immich",
+  "name": "Immich",
+  "version": 2,
+  "homepage": "https://immich.app",
+  "detect": {
+    "paths": [
+      "/api/server/",
+      "/api/assets",
+      "/api/sync"
+    ],
+    "upstream_ports": [
+      2283
+    ]
+  },
+  "methods": "app",
+  "exceptions": [
+    {
+      "rules": [
+        920420
+      ],
+      "method": "GET",
+      "path": "/api/server/version",
+      "argument": "",
+      "reason": "The Immich mobile app sends a Content-Type header on this version check, which has no body.",
+      "target_class": "protocol"
+    }
+  ]
+}

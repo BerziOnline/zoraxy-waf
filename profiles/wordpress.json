@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "wordpress",
+  "name": "WordPress",
+  "version": 1,
+  "homepage": "https://wordpress.org",
+  "detect": {
+    "paths": [
+      "/wp-admin/",
+      "/wp-json/",
+      "/wp-login.php"
+    ]
+  },
+  "methods": "app",
+  "exceptions": [],
+  "crs_plugin": "wordpress-rule-exclusions"
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "xenforo",
+  "name": "XenForo",
+  "version": 1,
+  "homepage": "https://xenforo.com",
+  "detect": {
+    "paths": [
+      "/admin.php",
+      "/forums/",
+      "/members/"
+    ]
+  },
+  "methods": "app",
+  "exceptions": [],
+  "crs_plugin": "xenforo-rule-exclusions"
+}

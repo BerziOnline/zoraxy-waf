@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "dokuwiki",
+  "name": "DokuWiki",
+  "version": 1,
+  "homepage": "https://www.dokuwiki.org",
+  "detect": {
+    "paths": [
+      "/doku.php",
+      "/lib/exe/"
+    ]
+  },
+  "methods": "app",
+  "exceptions": [],
+  "crs_plugin": "dokuwiki-rule-exclusions"
+}

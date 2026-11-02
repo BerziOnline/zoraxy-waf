@@ -38,29 +38,32 @@ type RuntimeConstantValue struct {
 }
 
 type IntroSpect struct {
-	ID                       string                 `json:"id"`
-	Name                     string                 `json:"name"`
-	Author                   string                 `json:"author"`
-	AuthorContact            string                 `json:"author_contact"`
-	Description              string                 `json:"description"`
-	URL                      string                 `json:"url"`
-	Type                     PluginType             `json:"type"`
-	VersionMajor             int                    `json:"version_major"`
-	VersionMinor             int                    `json:"version_minor"`
-	VersionPatch             int                    `json:"version_patch"`
-	StaticCapturePaths       []StaticCaptureRule    `json:"static_capture_paths"`
-	StaticCaptureIngress     string                 `json:"static_capture_ingress"`
-	DynamicCaptureSniff      string                 `json:"dynamic_capture_sniff"`
-	DynamicCaptureIngress    string                 `json:"dynamic_capture_ingress"`
-	RequestInspect           string                 `json:"request_inspect,omitempty"`
-	RequestInspectMaxBody    int                    `json:"request_inspect_max_body,omitempty"`
-	RequestInspectFailClosed bool                   `json:"request_inspect_fail_closed,omitempty"`
-	RequestInspectPolicy     string                 `json:"request_inspect_policy,omitempty"`
-	UIPath                   string                 `json:"ui_path"`
-	DashboardWidget          string                 `json:"dashboard_widget,omitempty"`
-	SubscriptionPath         string                 `json:"subscription_path"`
-	SubscriptionsEvents      map[string]string      `json:"subscriptions_events"`
-	PermittedAPIEndpoints    []PermittedAPIEndpoint `json:"permitted_api_endpoints"`
+	ID                    string              `json:"id"`
+	Name                  string              `json:"name"`
+	Author                string              `json:"author"`
+	AuthorContact         string              `json:"author_contact"`
+	Description           string              `json:"description"`
+	URL                   string              `json:"url"`
+	Type                  PluginType          `json:"type"`
+	VersionMajor          int                 `json:"version_major"`
+	VersionMinor          int                 `json:"version_minor"`
+	VersionPatch          int                 `json:"version_patch"`
+	StaticCapturePaths    []StaticCaptureRule `json:"static_capture_paths"`
+	StaticCaptureIngress  string              `json:"static_capture_ingress"`
+	DynamicCaptureSniff   string              `json:"dynamic_capture_sniff"`
+	DynamicCaptureIngress string              `json:"dynamic_capture_ingress"`
+	// DynamicCaptureSniffBodyKB asks Zoraxy for this many KiB of the request
+	// body with the sniff call (0 = headers only, Zoraxy caps it at 1024).
+	DynamicCaptureSniffBodyKB int                    `json:"dynamic_capture_sniff_body_kb,omitempty"`
+	RequestInspect            string                 `json:"request_inspect,omitempty"`
+	RequestInspectMaxBody     int                    `json:"request_inspect_max_body,omitempty"`
+	RequestInspectFailClosed  bool                   `json:"request_inspect_fail_closed,omitempty"`
+	RequestInspectPolicy      string                 `json:"request_inspect_policy,omitempty"`
+	UIPath                    string                 `json:"ui_path"`
+	DashboardWidget           string                 `json:"dashboard_widget,omitempty"`
+	SubscriptionPath          string                 `json:"subscription_path"`
+	SubscriptionsEvents       map[string]string      `json:"subscriptions_events"`
+	PermittedAPIEndpoints     []PermittedAPIEndpoint `json:"permitted_api_endpoints"`
 }
 
 type ConfigureSpec struct {
@@ -86,8 +89,11 @@ type SniffRequest struct {
 }
 
 // InspectPayload is the flat sniff metadata plus the bounded body prefix.
+// Zoraxy sends the body prefix with the one sniff call when the plugin
+// declared dynamic_capture_sniff_body_kb and the request has a body.
 type InspectPayload struct {
 	SniffRequest
+	BodyIncluded    bool   `json:"body_included,omitempty"`
 	Body            []byte `json:"body"`
 	BodyTruncated   bool   `json:"body_truncated"`
 	ProtocolVersion int    `json:"protocol_version,omitempty"`
@@ -206,3 +212,10 @@ func ParseConfigureArgs(args []string) (*ConfigureSpec, error) {
 	}
 	return &spec, nil
 }
+
+// Sniff status codes of Zoraxy's dynamic capture protocol (zoraxy_plugin.ControlStatusCode).
+const (
+	SniffAccept = 200 // plugin takes the request over (never used by the WAF)
+	SniffSkip   = 501 // let Zoraxy route the request normally
+	SniffDeny   = 286 // Zoraxy answers the client with X-Zoraxy-Deny-Status
+)

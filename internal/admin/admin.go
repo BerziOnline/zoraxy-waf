@@ -53,12 +53,13 @@ type eventRow struct {
 
 func Handler(s *service.Service) http.Handler {
 	mux := http.NewServeMux()
+	registerProfiles(mux, s)
 	mux.HandleFunc("/ui/api/state", func(w http.ResponseWriter, r *http.Request) {
 		if !method(w, r, "GET") {
 			return
 		}
 		c := s.Current()
-		service.JSON(w, map[string]any{"config": publicConfig(c), "api_key_set": c.CrowdSec.APIKey != "", "capabilities": s.Capabilities(), "health": s.Health(), "stats": s.Stats(), "event_stats": s.Events().Stats(), "load_error": s.LoadError(), "event_settings_restart_required": true, "gc_percent": s.GCPercent(), "gc_start_percent": s.GCStartPercent(), "cpu_cores": runtime.GOMAXPROCS(0), "alert_stats": s.Alerts().Stats()})
+		service.JSON(w, map[string]any{"config": publicConfig(c), "api_key_set": c.CrowdSec.APIKey != "", "capabilities": s.Capabilities(), "health": s.Health(), "stats": s.Stats(), "event_stats": s.Events().Stats(), "load_error": s.LoadError(), "event_settings_restart_required": true, "gc_percent": s.GCPercent(), "gc_start_percent": s.GCStartPercent(), "cpu_cores": runtime.GOMAXPROCS(0), "alert_stats": s.Alerts().Stats(), "setup_required": c.SetupRequired(), "learning_error": s.Learning().LoadError()})
 	})
 	mux.HandleFunc("/ui/api/summary", func(w http.ResponseWriter, r *http.Request) {
 		if !method(w, r, "GET") {
@@ -91,6 +92,18 @@ func Handler(s *service.Service) http.Handler {
 			if c.Revision != old.Revision {
 				return errConflict
 			}
+			// Activation is server-owned: a fresh install is switched on only
+			// through /api/activate, never by a plain save.
+			c.Learning.ActivatedAt = old.Learning.ActivatedAt
+			if old.SetupRequired() && !c.SetupRequired() {
+				return service.ErrActivationRequired
+			}
+			// An install that was switched on before activation existed (an
+			// older version, or settings written by hand) counts as activated,
+			// so switching it off and on again never brings the setup back.
+			if c.Learning.ActivatedAt.IsZero() && !old.SetupRequired() {
+				c.Learning.ActivatedAt = s.Now().UTC()
+			}
 			if c.CrowdSec.APIKey == "" {
 				c.CrowdSec.APIKey = old.CrowdSec.APIKey
 			}
@@ -101,7 +114,7 @@ func Handler(s *service.Service) http.Handler {
 		})
 		if err != nil {
 			code := 400
-			if errors.Is(err, errConflict) {
+			if errors.Is(err, errConflict) || errors.Is(err, service.ErrActivationRequired) {
 				code = 409
 			}
 			if errors.Is(err, engine.ErrUnsupported) {
@@ -111,6 +124,78 @@ func Handler(s *service.Service) http.Handler {
 			return
 		}
 		service.JSON(w, publicConfig(saved))
+	})
+	mux.HandleFunc("/ui/api/activate", func(w http.ResponseWriter, r *http.Request) {
+		if !method(w, r, "POST") {
+			return
+		}
+		var req struct {
+			Mode       string `json:"mode"`
+			Days       int    `json:"days"`
+			AcceptRisk bool   `json:"accept_risk"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil {
+			http.Error(w, "Invalid activation request", 400)
+			return
+		}
+		saved, err := s.Activate(req.Mode, req.Days, req.AcceptRisk)
+		if err != nil {
+			code := 400
+			if errors.Is(err, service.ErrAlreadyActive) {
+				code = 409
+			}
+			http.Error(w, "Activation rejected: "+err.Error(), code)
+			return
+		}
+		service.JSON(w, publicConfig(saved))
+	})
+	mux.HandleFunc("/ui/api/hosts", func(w http.ResponseWriter, r *http.Request) {
+		if !method(w, r, "GET") {
+			return
+		}
+		rows, info := s.HostStatuses(20 * time.Second)
+		service.JSON(w, map[string]any{"hosts": rows, "routes": info, "learning": service.SummarizeLearning(rows), "suggest_after": service.SuggestMethodAfter, "crs_methods": config.CRSMethods, "app_methods": config.AppMethods})
+	})
+	mux.HandleFunc("/ui/api/hosts/restart", func(w http.ResponseWriter, r *http.Request) {
+		if !method(w, r, "POST") {
+			return
+		}
+		var req struct {
+			Host string `json:"host"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil || req.Host == "" {
+			http.Error(w, "Invalid request", 400)
+			return
+		}
+		saved, err := s.RestartLearning(req.Host)
+		if err != nil {
+			code := 400
+			if errors.Is(err, service.ErrActivationRequired) {
+				code = 409
+			}
+			http.Error(w, "Restart rejected: "+safeConfigError(err), code)
+			return
+		}
+		service.JSON(w, publicConfig(saved))
+	})
+	mux.HandleFunc("/ui/api/findings/dismiss", func(w http.ResponseWriter, r *http.Request) {
+		if !method(w, r, "POST") {
+			return
+		}
+		var req struct {
+			Host      string `json:"host"`
+			Key       string `json:"key"`
+			Dismissed bool   `json:"dismissed"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<10)).Decode(&req); err != nil || req.Host == "" || req.Key == "" {
+			http.Error(w, "Invalid request", 400)
+			return
+		}
+		if err := s.DismissFinding(req.Host, req.Key, req.Dismissed); err != nil {
+			http.Error(w, "Finding not found", 404)
+			return
+		}
+		service.JSON(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("/ui/api/alerts/test", func(w http.ResponseWriter, r *http.Request) {
 		if !method(w, r, "POST") {
@@ -276,7 +361,7 @@ func sameCSRFToken(trusted, echo string) bool {
 func safeConfigError(err error) string {
 	// Validation strings contain configuration keys/IDs but not credentials.
 	// Compilation/IO/remote errors are intentionally not returned to clients.
-	if errors.Is(err, errConflict) {
+	if errors.Is(err, errConflict) || errors.Is(err, service.ErrActivationRequired) || errors.Is(err, service.ErrProfileConflict) {
 		return err.Error()
 	}
 	return "check field limits, host identities, engine settings and exception scope/expiry; previous configuration remains active"

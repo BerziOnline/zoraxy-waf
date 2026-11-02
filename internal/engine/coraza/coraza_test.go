@@ -48,6 +48,11 @@ func post(uri, ctype, body string) *engine.Request {
 	return r
 }
 
+func withMethod(m string, r *engine.Request) *engine.Request {
+	r.Method = m
+	return r
+}
+
 func inspect(t *testing.T, r *engine.Request, opts engine.Options) engine.Decision {
 	t.Helper()
 	if opts.ParanoiaLevel == 0 {
@@ -152,6 +157,31 @@ func TestBenignRequestsAtPL1(t *testing.T) {
 		if d.Interrupted {
 			t.Errorf("benign %s %s interrupted: %v", r.Method, r.RawURI, d.Matches)
 		}
+	}
+}
+
+// REST verbs stay reported by default (CRS 911100, allowed methods GET HEAD
+// POST OPTIONS). The service allows them per host by removing 911100 for that
+// transaction only; every other rule keeps running.
+func TestRESTMethodsReportedUnlessRemovedPerTransaction(t *testing.T) {
+	rest := []*engine.Request{
+		withMethod("PUT", post("/api/v4/users/me/preferences", "application/json", `[{"category":"display_settings","name":"theme","value":"dark"}]`)),
+		withMethod("PATCH", post("/api/v2/boards/b1/blocks/c2", "application/json", `{"title":"Shopping list"}`)),
+		withMethod("DELETE", get("/api/v4/posts/abc123")),
+	}
+	allow := engine.Options{Exclusions: []engine.Exclusion{{RuleID: 911100}}}
+	for _, r := range rest {
+		d := inspect(t, r, engine.Options{})
+		if !d.Interrupted || !hasRuleInRange(d, 911100, 911100) {
+			t.Fatalf("%s must be reported by the CRS method rule by default: %v", r.Method, ruleIDs(d))
+		}
+		if d := inspect(t, r, allow); d.Interrupted {
+			t.Fatalf("%s with the method rule removed must pass: %v", r.Method, ruleIDs(d))
+		}
+	}
+	attack := withMethod("PATCH", post("/api/v2/boards/b1/blocks/c2", "application/json", `{"title":"1' OR 1=1-- -"}`))
+	if d := inspect(t, attack, allow); !d.Interrupted || !hasRuleInRange(d, 942000, 942999) {
+		t.Fatalf("allowing PATCH must not switch off the other rules: %v", ruleIDs(d))
 	}
 }
 
